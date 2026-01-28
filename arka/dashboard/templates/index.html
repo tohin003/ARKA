@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARKA Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen font-sans">
+    <div id="app" v-cloak class="container mx-auto p-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-4">
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+                    ARKA
+                </h1>
+                <span class="px-2 py-1 bg-gray-800 rounded text-xs text-gray-400">v{{ version }}</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="glass px-4 py-2 rounded-full flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full" :class="statusColor"></div>
+                    <span class="text-sm">{{ statusText }}</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <!-- CPU -->
+            <div class="glass p-6 rounded-xl">
+                <h3 class="text-gray-400 text-sm mb-2">CPU Usage</h3>
+                <div class="flex items-end gap-2">
+                    <span class="text-3xl font-bold" v-text="stats.resources.cpu + '%'"></span>
+                </div>
+                <div class="mt-2 w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                    <div class="h-full bg-cyan-500 transition-all duration-500"
+                        :style="{ width: stats.resources.cpu + '%' }"></div>
+                </div>
+            </div>
+
+            <!-- RAM -->
+            <div class="glass p-6 rounded-xl">
+                <h3 class="text-gray-400 text-sm mb-2">RAM Usage</h3>
+                <div class="flex items-end gap-2">
+                    <span class="text-3xl font-bold" v-text="stats.resources.ram + '%'"></span>
+                </div>
+                <div class="mt-2 w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                    <div class="h-full bg-purple-500 transition-all duration-500"
+                        :style="{ width: stats.resources.ram + '%' }"></div>
+                </div>
+            </div>
+
+            <!-- Budget -->
+            <div class="glass p-6 rounded-xl">
+                <h3 class="text-gray-400 text-sm mb-2">Daily Budget</h3>
+                <div class="flex items-end gap-2">
+                    <span class="text-3xl font-bold" v-text="'$' + stats.budget.daily_spent.toFixed(2)"></span>
+                    <span class="text-gray-500 text-sm mb-1"
+                        v-text="'/ $' + stats.budget.daily_limit.toFixed(2)"></span>
+                </div>
+                <div class="mt-2 w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                    <div class="h-full transition-all duration-500"
+                        :class="stats.budget.is_warning ? 'bg-yellow-500' : 'bg-green-500'"
+                        :style="{ width: (stats.budget.daily_spent / stats.budget.daily_limit * 100) + '%' }"></div>
+                </div>
+            </div>
+
+            <!-- Tasks -->
+            <div class="glass p-6 rounded-xl">
+                <h3 class="text-gray-400 text-sm mb-2">Active Tasks</h3>
+                <div class="flex items-end gap-2">
+                    <span class="text-3xl font-bold" v-text="stats.orchestrator.active_tasks"></span>
+                </div>
+                <div class="text-xs text-gray-500 mt-2">
+                    <span v-text="stats.orchestrator.completed_tasks"></span> completed today
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Skills -->
+            <div class="glass p-6 rounded-xl">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <span>⚡</span> Skills
+                </h2>
+                <div class="space-y-3">
+                    <div v-for="skill in skills" :key="skill.name"
+                        class="bg-gray-800 p-3 rounded-lg hover:bg-gray-750 transition-colors">
+                        <div class="flex justify-between items-start">
+                            <h3 class="font-medium text-cyan-400" v-text="skill.name"></h3>
+                            <span class="text-xs bg-gray-900 px-2 py-1 rounded text-gray-500"
+                                v-text="skill.usage_count + ' uses'"></span>
+                        </div>
+                        <p class="text-sm text-gray-400 mt-1" v-text="skill.description"></p>
+                    </div>
+                    <div v-if="skills.length === 0" class="text-center text-gray-500 py-4">
+                        No skills learned yet
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tools -->
+            <div class="glass p-6 rounded-xl">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <span>🔧</span> Tools
+                </h2>
+                <div class="space-y-3">
+                    <div v-for="tool in tools" :key="tool.name" class="bg-gray-800 p-3 rounded-lg">
+                        <h3 class="font-medium text-purple-400" v-text="tool.name"></h3>
+                        <p class="text-sm text-gray-400 mt-1" v-text="tool.description"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, computed } = Vue
+
+        createApp({
+            setup() {
+                const version = ref("{{ version }}")
+                const stats = ref({
+                    resources: { cpu: 0, ram: 0, status: 'ok', summary: '' },
+                    budget: { daily_spent: 0, daily_limit: 10, is_warning: false },
+                    orchestrator: { active_tasks: 0, completed_tasks: 0 }
+                })
+                const skills = ref([])
+                const tools = ref([])
+
+                const statusColor = computed(() => {
+                    switch (stats.value.resources.status) {
+                        case 'critical': return 'bg-red-500'
+                        case 'warning': return 'bg-yellow-500'
+                        default: return 'bg-green-500'
+                    }
+                })
+
+                const statusText = computed(() => {
+                    return stats.value.resources.status.toUpperCase()
+                })
+
+                const fetchData = async () => {
+                    try {
+                        const [statusRes, skillsRes, toolsRes] = await Promise.all([
+                            fetch('/api/status'),
+                            fetch('/api/skills'),
+                            fetch('/api/tools')
+                        ])
+
+                        stats.value = await statusRes.json()
+                        skills.value = await skillsRes.json()
+                        tools.value = await toolsRes.json()
+                    } catch (e) {
+                        console.error('Error fetching data:', e)
+                    }
+                }
+
+                onMounted(() => {
+                    fetchData()
+                    setInterval(fetchData, 2000)
+                })
+
+                return {
+                    version,
+                    stats,
+                    skills,
+                    tools,
+                    statusColor,
+                    statusText
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+
+</html>

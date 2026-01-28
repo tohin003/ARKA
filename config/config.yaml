@@ -1,0 +1,65 @@
+# ARKA Configuration
+# Copy to ~/.arka/config.yaml or edit config/config.yaml
+
+# Model Registry (OpenAI Only)
+models:
+  # Default model for Main Agent / Orchestrator
+  default: gpt-4o
+  
+  # Sub-agent model assignments (all OpenAI)
+  planner: gpt-4o
+  coder: gpt-5.2-codex         # Best for coding tasks
+  tester: gpt-4o-mini          # Cheaper for validation
+  debugger: gpt-5.2-codex      # Strong coding model for debugging
+  memory_manager: gpt-4o-mini  # Background tasks
+
+# OpenAI Configuration
+openai:
+  api_key: ${OPENAI_API_KEY}  # Set via environment variable
+  available_models:
+    - gpt-4o
+    - gpt-4o-mini
+    - gpt-5.2-codex           # Best for coding
+    - o1-preview
+    - o1-mini
+
+# Budget & Cost Control (Important for API-only usage)
+budget:
+  daily_limit: 10.00          # USD per day
+  session_limit: 3.00         # USD per session
+  warning_threshold: 0.80     # Warn when 80% consumed
+
+# Token Tracking
+tokens:
+  context_limit:
+    gpt-4o: 128000
+    gpt-4o-mini: 128000
+    o1-preview: 128000
+    o1-mini: 128000
+
+# Resource Monitoring
+resources:
+  cpu_pause_threshold: 90     # Pause tasks if CPU > 90%
+  ram_pause_threshold: 85     # Pause tasks if RAM > 85%
+  check_interval: 5           # Seconds between checks
+
+# Memory Configuration
+memory:
+  vector_db: chromadb
+  chroma_path: ./data/chroma
+  mem0_enabled: true
+
+# MCP Configuration
+mcp:
+  servers: []                 # Add MCP server URLs here
+
+# Skills Configuration
+skills:
+  path: ./arka/skills/trained
+  auto_learn: true
+
+# Logging
+logging:
+  level: INFO
+  file: ./logs/arka.log
+  structured: true            # JSON logging for audit trail
