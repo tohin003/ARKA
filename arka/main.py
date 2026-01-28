@@ -4,13 +4,22 @@ Full system access with orchestrator, memory, and resource monitoring.
 """
 
 import sys
+import os
 import argparse
 import json
+from pathlib import Path
 from typing import Optional
+
+# Load .env file for API keys (before any other imports that need them)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Loads from .env in project root
+except ImportError:
+    pass  # dotenv not installed, rely on environment variables
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
@@ -54,7 +63,12 @@ class ArkaCLI:
         self.memory = MemoryClient()
         self.resource_monitor = ResourceMonitor()
         self.budget_manager = BudgetManager(daily_limit=self.config.budget.daily_limit)
-        self.orchestrator = Orchestrator(self.router, self.tracker, self.config)
+        self.orchestrator = Orchestrator(
+            router=self.router, 
+            tracker=self.tracker, 
+            config=self.config,
+            tool_executor=self.tool_executor
+        )
         
         self.messages = []  # Conversation history
         self.session_id = f"session_{int(__import__('time').time())}"
@@ -530,6 +544,40 @@ def main():
     
     if args.config:
         reload_config(args.config)
+        
+    # Interactive check for existing credentials (user request)
+    # Only verify if we have a key and we're in standard interactive mode
+    current_key = os.environ.get("OPENAI_API_KEY")
+    is_interactive_mode = not (args.hotkey_mode or args.dashboard or args.version or args.model or args.setup)
+    
+    if current_key and is_interactive_mode:
+        # Mask key for display
+        masked = current_key[:8] + "..." + current_key[-4:] if len(current_key) > 12 else "***"
+        
+        console.print()
+        console.print(Panel(
+            f"[bold]Saved OpenAI API Key found:[/bold] [dim]{masked}[/dim]",
+            title="🔐 Credentials",
+            border_style="cyan"
+        ))
+        
+        if not Confirm.ask("Use these credentials?", default=True):
+            # User wants to change credentials
+            console.print("[dim]Enter new API key:[/dim]")
+            new_key = Prompt.ask("OpenAI API Key", password=True)
+            if new_key:
+                os.environ["OPENAI_API_KEY"] = new_key.strip()
+                # Update .env
+                try:
+                    from dotenv import set_key
+                    env_path = Path(".env")
+                    if not env_path.exists():
+                         env_path.touch()
+                    set_key(env_path, "OPENAI_API_KEY", new_key.strip())
+                    console.print("[green]✓ Updated .env file[/green]")
+                except ImportError:
+                    console.print("[yellow]Could not save to local .env (python-dotenv not installed)[/yellow]")
+            console.print()
     
     # Run setup wizard on first launch or if --setup flag
     if args.setup or not is_setup_complete():

@@ -1,6 +1,7 @@
 """
 ARKA Training Module
-Integration with Microsoft Agent Lightning for RL-based optimization.
+ARKA Training Module
+Integration with Semantic Memory for RAG-based optimization.
 """
 
 import json
@@ -173,14 +174,14 @@ class SemanticPatternTrainer:
         Update the most recent interaction based on user feedback.
         Searches for the most recent 'rl_pattern' memory and adjusts its score.
         """
-        # Find most recent RL pattern
-        recent = self.memory.search(
-            "recent interaction", 
-            limit=5, 
+        # Find most recent RL patterns by getting all and sorting by timestamp
+        recent = self.memory.get_all(
+            limit=10,
             filter_metadata={"type": "rl_pattern"}
         )
         
         if not recent:
+            print("[RL] No patterns found to update")
             return
 
         # Sort by timestamp in metadata (descending)

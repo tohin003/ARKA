@@ -18,11 +18,11 @@ Provide a structured plan in this format:
 - [Any requirements or dependencies]
 
 ### Steps
-1. **[Step Name]** (Agent: [coder/tester/debugger])
+1. **[Step Name]** (Agent: [coder/tester/debugger/gui])
    - Description: [What to do]
    - Expected Output: [What success looks like]
 
-2. **[Step Name]** (Agent: [coder/tester/debugger])
+2. **[Step Name]** (Agent: [coder/tester/debugger/gui])
    - Description: [What to do]
    - Expected Output: [What success looks like]
 

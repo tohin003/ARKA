@@ -14,7 +14,9 @@ from arka.prompt_loader import get_prompt_loader
 from arka.agents.planner import PlannerAgent, Plan
 from arka.agents.coder import CoderAgent, CodeOutput
 from arka.agents.tester import TesterAgent, TestReport
+from arka.agents.tester import TesterAgent, TestReport
 from arka.agents.debugger import DebuggerAgent, BugFix
+from arka.agents.gui_agent import GuiAgent
 
 
 @dataclass
@@ -40,11 +42,15 @@ class Orchestrator:
         router: Optional[ModelRouter] = None,
         tracker: Optional[TokenTracker] = None,
         config: Optional[Config] = None,
+        tool_executor: Optional[Any] = None,
     ):
         self.config = config or get_config()
         self.router = router or ModelRouter(self.config)
         self.tracker = tracker or TokenTracker(self.config)
         self.prompt_loader = get_prompt_loader()
+        
+        from arka.tools.tool_executor import get_tool_executor
+        self.tool_executor = tool_executor or get_tool_executor()
         
         from arka.memory.memory_client import MemoryClient
         self.memory = MemoryClient()
@@ -53,10 +59,11 @@ class Orchestrator:
         self.trainer = get_trainer()
         
         # Initialize sub-agents
-        self.planner = PlannerAgent(self.router, self.tracker)
-        self.coder = CoderAgent(self.router, self.tracker)
-        self.tester = TesterAgent(self.router, self.tracker)
-        self.debugger = DebuggerAgent(self.router, self.tracker)
+        self.planner = PlannerAgent(self.router, self.tracker, tool_executor=self.tool_executor)
+        self.coder = CoderAgent(self.router, self.tracker, tool_executor=self.tool_executor)
+        self.tester = TesterAgent(self.router, self.tracker, tool_executor=self.tool_executor)
+        self.debugger = DebuggerAgent(self.router, self.tracker, tool_executor=self.tool_executor)
+        self.gui = GuiAgent(self.router, self.tracker, tool_executor=self.tool_executor)
         
         self.history: List[Dict[str, Any]] = []
         self._agent_map = {
@@ -64,6 +71,7 @@ class Orchestrator:
             "coder": self.coder,
             "tester": self.tester,
             "debugger": self.debugger,
+            "gui": self.gui,
         }
     
     def chat(self, message: str, use_agents: bool = True) -> str:
@@ -86,8 +94,24 @@ class Orchestrator:
             "class", "script", "program", "fix", "debug", "test"
         ])
         
-        if use_agents and is_coding_task:
-            response = self._execute_with_agents(message)
+        # Check for GUI/Web tasks
+        is_gui_task = any(word in message_lower for word in [
+            "click", "open", "browser", "search", "navigate", "website", 
+            "app", "music", "play", "type", "scroll", "find"
+        ])
+        
+        if use_agents:
+            if is_coding_task:
+                response = self._execute_with_agents(message)
+            elif is_gui_task:
+                 # Route directly to GUI agent for simpler requests, or plan if complex
+                 if len(message.split()) > 100: # Heuristic for complexity
+                     response = self._execute_with_agents(message)
+                 else:
+                     result = self.gui.process(message)
+                     response = result.output if hasattr(result, 'output') else str(result)
+            else:
+                response = self._direct_chat(message)
         else:
             response = self._direct_chat(message)
         
@@ -224,6 +248,10 @@ class Orchestrator:
                 fix = self.debugger.process(step.description)
                 results.append(f"  ✓ Analysis complete")
             
+            elif step.agent == "gui":
+                output = self.gui.process(step.description)
+                results.append(f"  ✓ GUI Action Complete: {output}")
+
             else:
                 # Default to coder
                 output = self.coder.process(step.description)

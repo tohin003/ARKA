@@ -119,11 +119,25 @@ class ModelRouter:
         params = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
             "stream": stream,
         }
+        
+        # Determine if this is a newer model that uses different API parameters
+        is_new_model = any(x in model for x in ['gpt-5', 'o1', 'o3', 'gpt-4.1'])
+        
+        # Temperature: not supported for o1/o3 reasoning models
+        if 'o1' in model or 'o3' in model:
+            pass  # Don't add temperature
+        else:
+            params["temperature"] = temperature
+        
+        # Token limit: new models use max_completion_tokens, older use max_tokens
         if max_tokens:
-            params["max_tokens"] = max_tokens
+            if is_new_model:
+                params["max_completion_tokens"] = max_tokens
+            else:
+                params["max_tokens"] = max_tokens
+        
         params.update(kwargs)
         
         response = self.openai_client.chat.completions.create(**params)

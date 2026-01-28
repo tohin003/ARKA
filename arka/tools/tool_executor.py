@@ -12,7 +12,95 @@ from arka.tools.system_controller import get_system_controller, SystemController
 
 
 # Extended tool definitions for OpenAI function calling
+from arka.core.computer_controller import get_computer_controller
+from arka.core.browser_manager import get_browser_manager
+from arka.vision.screen_analyzer import get_screen_analyzer
+
 TOOL_DEFINITIONS = [
+    # ==================== Vision & Desktop GUI ====================
+    {
+        "type": "function",
+        "function": {
+            "name": "vision_click",
+            "description": "Find a UI element by description and click it (e.g. 'Play button')",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Description of element to click"},
+                    "double_click": {"type": "boolean", "description": "True for double click"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vision_analyze",
+            "description": "Analyze the screen state to answer a question",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "Question about screen state"}
+                },
+                "required": ["question"]
+            }
+        }
+    },
+    
+    # ==================== Web Browser (Playwright) ====================
+    {
+        "type": "function",
+        "function": {
+            "name": "web_navigate",
+            "description": "Navigate to a URL in Chrome",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to visit"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_click",
+            "description": "Click an element on the web page using a CSS selector or text",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS selector or text content"}
+                },
+                "required": ["selector"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_type",
+            "description": "Type text into a web element",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS selector"},
+                    "text": {"type": "string", "description": "Text to type"}
+                },
+                "required": ["selector", "text"]
+            }
+        }
+    },
+     {
+        "type": "function",
+        "function": {
+            "name": "web_read",
+            "description": "Get the text content of the current page",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+
     # ==================== App Control ====================
     {
         "type": "function",
@@ -386,6 +474,9 @@ class ToolExecutor:
     
     def __init__(self):
         self.sys = get_system_controller()
+        self.computer = get_computer_controller()
+        self.browser = get_browser_manager()
+        self.analyzer = get_screen_analyzer()
     
     def get_tool_definitions(self) -> List[Dict]:
         """Get tool definitions for OpenAI API."""
@@ -394,12 +485,56 @@ class ToolExecutor:
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool and return the result."""
         try:
+            # Vision & Desktop
+            if tool_name == "vision_click":
+                query = arguments["query"]
+                element = self.analyzer.find_element(query)
+                if not element:
+                    return f"Could not find element matching '{query}'"
+                
+                clicks = 2 if arguments.get("double_click") else 1
+                self.computer.click(element.x, element.y, clicks=clicks)
+                return f"Clicked '{query}' at ({element.x}, {element.y})"
+
+            elif tool_name == "vision_analyze":
+                return self.analyzer.analyze_screen_state(arguments["question"])
+                
+            # Web Browser
+            elif tool_name == "web_navigate":
+                self.browser.navigate(arguments["url"])
+                return f"Navigated to {arguments['url']}"
+                
+            elif tool_name == "web_click":
+                # Try simple selector first
+                try:
+                    self.browser.click(arguments["selector"])
+                    return f"Clicked {arguments['selector']}"
+                except Exception:
+                    # Fallback strategies could go here (e.g. text match)
+                    return f"Failed to click {arguments['selector']}"
+                    
+            elif tool_name == "web_type":
+                self.browser.type_text(arguments["selector"], arguments["text"])
+                return f"Typed '{arguments['text']}' into {arguments['selector']}"
+                
+            elif tool_name == "web_read":
+                return self.browser.get_visible_text()[:2000]
+
             # App Control
             if tool_name == "open_application":
                 result = self.sys.open_app(arguments["app_name"])
                 return result.output if result.success else f"Error: {result.error}"
             
             elif tool_name == "quit_application":
+                from rich.prompt import Confirm
+                from rich.console import Console
+                # Minimal confirmation
+                console = Console()
+                console.print(f"[bold red]⚠️  Security Alert[/bold red]")
+                console.print(f"Agent wants to QUIT application: [bold yellow]{arguments['app_name']}[/bold yellow]")
+                if not Confirm.ask("Allow this?"):
+                     return "Action blocked by user."
+                
                 result = self.sys.quit_app(arguments["app_name"])
                 return result.output if result.success else f"Error: {result.error}"
             
@@ -463,8 +598,20 @@ class ToolExecutor:
                     return f.read()[:2000]
             
             elif tool_name == "write_file":
+                from rich.prompt import Confirm
+                from rich.console import Console
                 import os
                 path = os.path.expanduser(arguments["path"])
+                
+                console = Console()
+                console.print(f"[bold red]⚠️  Security Alert[/bold red]")
+                console.print(f"Agent wants to WRITE to file: [bold yellow]{path}[/bold yellow]")
+                if os.path.exists(path):
+                    console.print("[dim](File exists - will overwrite)[/dim]")
+                
+                if not Confirm.ask("Allow writing?"):
+                    return "Action blocked by user."
+                    
                 with open(path, "w") as f:
                     f.write(arguments["content"])
                 return f"Written to {path}"
