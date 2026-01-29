@@ -7,7 +7,7 @@ models:
   default: gpt-5.2             # Better reasoning for all tasks
   
   # Sub-agent model assignments (all OpenAI)
-  planner: o1                  # Deep reasoning for complex planning
+  planner: gpt-5.2             # Better general planning (user preference)
   coder: gpt-5.2-codex         # Best for coding tasks
   tester: gpt-5.2              # Better reasoning for tests
   debugger: gpt-5.2-codex      # Strong coding model for debugging
