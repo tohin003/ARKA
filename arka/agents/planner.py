@@ -102,7 +102,7 @@ class PlannerAgent(BaseAgent):
             steps = [PlanStep(
                 number=1,
                 name="Execute Task",
-                agent=target_agent,
+                agent=default_agent,
                 description=task,
                 expected_output="Task completed",
             )]
