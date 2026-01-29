@@ -16,457 +16,8 @@ from arka.core.computer_controller import get_computer_controller
 from arka.core.browser_manager import get_browser_manager
 from arka.vision.screen_analyzer import get_screen_analyzer
 
-TOOL_DEFINITIONS = [
-    # ==================== Vision & Desktop GUI ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "vision_click",
-            "description": "Find a UI element by description and click it (e.g. 'Play button')",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Description of element to click"},
-                    "double_click": {"type": "boolean", "description": "True for double click"}
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "vision_analyze",
-            "description": "Analyze the screen state to answer a question",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string", "description": "Question about screen state"}
-                },
-                "required": ["question"]
-            }
-        }
-    },
-    
-    # ==================== Web Browser (Playwright) ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "web_navigate",
-            "description": "Navigate to a URL in Chrome",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "URL to visit"}
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_click",
-            "description": "Click an element on the web page using a CSS selector or text",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "selector": {"type": "string", "description": "CSS selector or text content"}
-                },
-                "required": ["selector"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_type",
-            "description": "Type text into a web element",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "selector": {"type": "string", "description": "CSS selector"},
-                    "text": {"type": "string", "description": "Text to type"}
-                },
-                "required": ["selector", "text"]
-            }
-        }
-    },
-     {
-        "type": "function",
-        "function": {
-            "name": "web_read",
-            "description": "Get the text content of the current page",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    },
-
-    # ==================== App Control ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "open_application",
-            "description": "Open any macOS application (Safari, Chrome, Comet, Finder, Spotify, VS Code, Music, etc.)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "app_name": {
-                        "type": "string",
-                        "description": "Name of the application to open"
-                    }
-                },
-                "required": ["app_name"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "quit_application",
-            "description": "Quit/close a running application",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "app_name": {
-                        "type": "string",
-                        "description": "Name of the application to quit"
-                    }
-                },
-                "required": ["app_name"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_running_apps",
-            "description": "Get list of currently running applications",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    },
-    
-    # ==================== Browser ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "open_url",
-            "description": "Open a URL in the default or specified browser",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to open"
-                    },
-                    "browser": {
-                        "type": "string",
-                        "description": "Browser name (Safari, Chrome, Comet, Firefox). Default: system default"
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_youtube",
-            "description": "Search YouTube for a video and open in browser. Can specify browser like Comet.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Video/song to search for"
-                    },
-                    "browser": {
-                        "type": "string",
-                        "description": "Browser to use (Comet, Safari, Chrome). Default: default browser"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_google",
-            "description": "Search Google for a query",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    
-    # ==================== Skills ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "execute_skill",
-            "description": "Execute a learned skill by name.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Name of the skill to execute"}
-                },
-                "required": ["name"]
-            }
-        }
-    },
-
-    # ==================== Music ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "play_music",
-            "description": "Search for and play a song in Apple Music or Spotify. Opens the app, searches, and plays the song.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Song name, artist, or search query"
-                    },
-                    "app": {
-                        "type": "string",
-                        "description": "Music app: 'music' for Apple Music, 'spotify' for Spotify. Default: music"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    
-    # ==================== File System ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "open_folder",
-            "description": "Open a folder in Finder",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the folder (supports ~ for home)"
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read contents of a file",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file"
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write content to a file",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write"
-                    }
-                },
-                "required": ["path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_directory",
-            "description": "List files and folders in a directory",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to directory"
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    
-    # ==================== Shell Commands ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "run_shell",
-            "description": "Execute a shell command and return output",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Shell command to execute"
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_in_terminal",
-            "description": "Open Terminal and run a command (visible to user)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Command to run in Terminal"
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    
-    # ==================== Keyboard ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "type_text",
-            "description": "Type text at current cursor position in the active app",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "Text to type"
-                    }
-                },
-                "required": ["text"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "press_key",
-            "description": "Press a keyboard key with optional modifiers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "key": {
-                        "type": "string",
-                        "description": "Key: return, tab, escape, space, up, down, left, right, or letter"
-                    },
-                    "modifiers": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Modifier keys: cmd, shift, alt, ctrl"
-                    }
-                },
-                "required": ["key"]
-            }
-        }
-    },
-    
-    # ==================== Clipboard ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "get_clipboard",
-            "description": "Get current clipboard contents",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_clipboard",
-            "description": "Copy text to clipboard",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "Text to copy"
-                    }
-                },
-                "required": ["text"]
-            }
-        }
-    },
-    
-    # ==================== Notes/Reminders ====================
-    {
-        "type": "function",
-        "function": {
-            "name": "create_note",
-            "description": "Create a note in Apple Notes",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Note title"
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "Note content"
-                    }
-                },
-                "required": ["title", "body"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_reminder",
-            "description": "Create a reminder in Apple Reminders",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Reminder title"
-                    },
-                    "due_date": {
-                        "type": "string",
-                        "description": "Due date (optional)"
-                    }
-                },
-                "required": ["title"]
-            }
-        }
-    },
-]
+from arka.tools.core_defs import CORE_TOOL_DEFINITIONS
+from arka.skills.registry import get_skill_registry
 
 
 class ToolExecutor:
@@ -477,13 +28,35 @@ class ToolExecutor:
         self.computer = get_computer_controller()
         self.browser = get_browser_manager()
         self.analyzer = get_screen_analyzer()
+        self.registry = get_skill_registry()
     
     def get_tool_definitions(self) -> List[Dict]:
         """Get tool definitions for OpenAI API."""
-        return TOOL_DEFINITIONS
+        # 1. Core Tools
+        tools = CORE_TOOL_DEFINITIONS.copy()
+        
+        # 2. Dynamic Skill Tools
+        skill_tools = self.registry.get_all_tools()
+        tools.extend(skill_tools)
+        
+        return tools
     
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool and return the result."""
+        
+        # 1. Check Dynamic Registry First
+        skill_func = self.registry.get_tool_func(tool_name)
+        if skill_func:
+            try:
+                # Skill tools might need access to system/browser
+                # We can inject them if the function accepts them, 
+                # or rely on the function using singletons (get_system_controller).
+                # For now, simplistic execution:
+                return str(skill_func(**arguments))
+            except Exception as e:
+                return f"Error executing skill tool '{tool_name}': {e}"
+
+        # 2. Check Core Tools (Legacy Implementation)
         try:
             # Vision & Desktop
             if tool_name == "vision_click":
@@ -548,6 +121,20 @@ class ToolExecutor:
                 result = self.sys.youtube_search_in_browser(arguments["query"], browser)
                 return result.output if result.success else f"Error: {result.error}"
 
+            # Bluetooth
+            elif tool_name == "bluetooth":
+                from arka.tools.bluetooth_tool import BluetoothTool
+                tool = BluetoothTool()
+                res = tool.execute(arguments["action"], arguments.get("device"))
+                return res.output if res.success else f"Error: {res.error}"
+
+            # Audio
+            elif tool_name == "audio":
+                from arka.tools.audio_tool import AudioTool
+                tool = AudioTool()
+                res = tool.execute(arguments["action"], arguments.get("level"))
+                return res.output if res.success else f"Error: {res.error}"
+
             # Learned Skills
             elif tool_name == "execute_skill":
                 from arka.skills.skill_forge import get_skill_forge
@@ -585,7 +172,15 @@ class ToolExecutor:
                 else:
                     result = self.sys.music_search_and_play(query)
                 return result.output if result.success else f"Error: {result.error}"
+                return result.output if result.success else f"Error: {result.error}"
             
+            # Memory Management
+            elif tool_name in ["create_memory_node", "list_memory_nodes", "store_memory", "delete_memory_node"]:
+                func = MEMORY_TOOLS[tool_name]
+                # Filter args to match signature? Or just kwargs?
+                # Usually simple kwargs for our tools
+                return func(**arguments)
+
             # File System
             elif tool_name == "open_folder":
                 result = self.sys.open_folder(arguments["path"])

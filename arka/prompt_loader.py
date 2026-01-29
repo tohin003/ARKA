@@ -86,7 +86,6 @@ class PromptLoader:
                 
                 if examples:
                     learned_section = "\n\n## Learned Patterns (Successful Interactions)\n"
-                    # Add disclaimer
                     learned_section += "> [!NOTE] These are historical examples of similar successful tasks.\n"
                     
                     for i, ex in enumerate(examples, 1):
@@ -95,8 +94,40 @@ class PromptLoader:
                     prompt += learned_section
             except Exception:
                 pass
+        
+        # Inject Available Skills List
+        try:
+            from arka.skills.registry import get_skill_registry
+            registry = get_skill_registry()
+            active_skills = [s for s in registry.registry.values() if s.is_active]
+            
+            if active_skills:
+                skills_section = "\n\n## Available Specialized Skills\n"
+                skills_section += "You have access to the following specialized skills. "
+                skills_section += "If a task matches a skill description, you can use specific tools or following the skill's patterns.\n\n"
+                
+                for skill in active_skills:
+                    skills_section += f"- **{skill.name}**: {skill.description}\n"
+                
+                prompt += skills_section
+        except Exception:
+            pass
             
         return prompt
+
+    def get_skill_full_instructions(self, skill_name: str) -> str:
+        """Get the full SKILL.md content for a specific skill."""
+        try:
+            from arka.skills.registry import get_skill_registry
+            registry = get_skill_registry()
+            if skill_name in registry.registry:
+                skill = registry.registry[skill_name]
+                skill_md = skill.path / "SKILL.md"
+                if skill_md.exists():
+                    return f"\n\n--- SKILL INSTRUCTIONS: {skill_name} ---\n{skill_md.read_text()}\n----------------------------------------\n"
+        except Exception:
+            pass
+        return ""
     
     def reload(self):
         """Clear cache and reload prompts."""

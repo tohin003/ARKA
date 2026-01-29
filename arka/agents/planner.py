@@ -73,23 +73,36 @@ class PlannerAgent(BaseAgent):
         """Parse LLM output into a Plan object."""
         # Simple parsing - extract steps
         steps = []
-        step_pattern = r'(\d+)\.\s*\*\*([^*]+)\*\*.*?Agent:\s*(\w+)'
+        # Regex: 1. **Title** (Agent: name) - allow various formats
+        # Capture groups: 1=Num, 2=Name, 3=Agent (Optional)
+        step_pattern = r'(\d+)\.\s*(?:\*\*)?([^*:\n\(]+)(?:\*\*)?.*?(?:\(Agent:\s*(\w+)\)|Agent:\s*(\w+))?'
         
-        for match in re.finditer(step_pattern, output, re.DOTALL):
+        # Smart detection context
+        task_lower = task.lower()
+        gui_keywords = ["browser", "click", "open", "play", "app", "navigate", "search", "youtube", "music", "spotify", "comet"]
+        is_gui_task = any(kw in task_lower for kw in gui_keywords)
+        default_agent = "gui" if is_gui_task else "coder"
+
+        for match in re.finditer(step_pattern, output, re.DOTALL | re.IGNORECASE):
+            # Agent can be in group 3 or 4 depending on which part of regex matched
+            raw_agent = match.group(3) or match.group(4)
+            agent = raw_agent.lower() if raw_agent else default_agent
+
             steps.append(PlanStep(
                 number=int(match.group(1)),
                 name=match.group(2).strip(),
-                agent=match.group(3).lower(),
+                agent=agent,
                 description=match.group(2).strip(),
                 expected_output="Step completed",
             ))
         
-        # If no structured steps found, create a single step
+        # If no structured steps found, create a single step with smart routing
         if not steps:
+            
             steps = [PlanStep(
                 number=1,
                 name="Execute Task",
-                agent="coder",
+                agent=target_agent,
                 description=task,
                 expected_output="Task completed",
             )]

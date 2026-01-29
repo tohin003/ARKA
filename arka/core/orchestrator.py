@@ -89,33 +89,66 @@ class Orchestrator:
         
         # Simple check for coding-related tasks
         message_lower = message.lower()
-        is_coding_task = any(word in message_lower for word in [
+        words = set(message_lower.split())
+        
+        coding_keywords = {
             "write", "code", "create", "build", "implement", "function",
             "class", "script", "program", "fix", "debug", "test"
-        ])
+        }
+        
+        # Check intersection (Whole words only)
+        # Prevents "LeetCode" triggers (contains "code")
+        is_coding_task = bool(words & coding_keywords)
         
         # Check for GUI/Web tasks
-        is_gui_task = any(word in message_lower for word in [
+        gui_keywords = {
+            # Navigation/Browser
             "click", "open", "browser", "search", "navigate", "website", 
-            "app", "music", "play", "type", "scroll", "find"
-        ])
+            "app", "scroll", "find", "go", "visit", "tab",
+            # Media
+            "music", "play", "spotify", "youtube",
+            # Form/Application
+            "fill", "form", "apply", "submit", "application", "job",
+            "linkedin", "indeed", "resume", "input",
+            # Actions in browser
+            "comet", "chrome", "safari", "type", "enter"
+        }
+        is_gui_task = bool(words & gui_keywords)
         
-        if use_agents:
-            if is_coding_task:
-                response = self._execute_with_agents(message)
-            elif is_gui_task:
-                 # Route directly to GUI agent for simpler requests, or plan if complex
-                 if len(message.split()) > 100: # Heuristic for complexity
-                     response = self._execute_with_agents(message)
-                 else:
-                     result = self.gui.process(message)
-                     response = result.output if hasattr(result, 'output') else str(result)
-            else:
-                response = self._direct_chat(message)
+        # Exception: Bluetooth commands should use the System Tool, not GUI Agent
+        if "bluetooth" in words:
+            is_gui_task = False
+        
+        if use_agents and (is_coding_task or is_gui_task):
+            # Always plan and execute with agents for functional tasks
+            # This enforces the "Think -> Plan -> Execute" flow requested
+            response = self._execute_with_agents(message)
         else:
             response = self._direct_chat(message)
+
         
         self.history.append({"role": "assistant", "content": response})
+        
+        # Persist to memory/trainer for long-term recall
+        # This ensures "context about prior conversations" works after restart
+        try:
+            success = True
+            if is_gui_task and 'result' in locals() and hasattr(result, 'success'):
+                success = result.success
+                
+            self.trainer.log_interaction(
+                task=message,
+                response=response,
+                success=success,
+                metadata={
+                    "type": "interaction", 
+                    "category": "gui" if is_gui_task else "chat",
+                    "timestamp": __import__("datetime").datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            print(f"[Memory] Failed to save interaction: {e}")
+            
         return response
     
     def _direct_chat(self, message: str) -> str:
@@ -126,12 +159,26 @@ class Orchestrator:
         
         # Retrieve persona and relevant context
         persona = self.memory.get_persona()
-        context = self.memory.search(message, limit=3)
+        
+        # 1. Semantic Search (Sliding Window / "Pyramid")
+        # Prioritize recent context matches over old ones
+        context = self.memory.search_time_aware(message, window_size=20)
         context_str = "\n".join([c.content for c in context]) if context else ""
+        
+        # 2. Chronological Context (for immediate awareness)
+        # Fetch more items (20) to account for duplicates/chatter and ensure 
+        # significant actions (like tool outputs) remain in context.
+        recent_memories = self.memory.get_recent(limit=20)
+        # Reverse to ensure chronological order (Oldest -> Newest)
+        recent_memories.reverse()
+        recent_str = "\n".join([m.content for m in recent_memories]) if recent_memories else ""
         
         system_prompt = self.prompt_loader.get_core_prompt()
         if persona:
              system_prompt += f"\n\n## User Persona\n{persona}"
+        
+        if recent_str:
+            system_prompt += f"\n\n## Recent Interactions (Chronological)\n{recent_str}"
         
         # Build initial messages path
         messages = [

@@ -30,7 +30,72 @@ class MemoryClient:
         self._chroma_client = None
         self._collection = None
         self._initialized = False
-    
+        self.nodes_file = self.persist_dir / "nodes.json"
+        self._ensure_nodes_init()
+
+    def _ensure_nodes_init(self):
+        """Ensure default nodes exist."""
+        if not self.nodes_file.exists():
+            import json
+            # Default 'general' node always exists
+            self.nodes_file.write_text(json.dumps(["general"]))
+
+    def create_node(self, name: str) -> str:
+        """Create a new memory node."""
+        import json
+        if not self.nodes_file.exists():
+            self._ensure_nodes_init()
+        
+        nodes = json.loads(self.nodes_file.read_text())
+        name_clean = name.strip().lower()
+        if name_clean not in nodes:
+            nodes.append(name_clean)
+            self.nodes_file.write_text(json.dumps(nodes))
+            return f"Node '{name_clean}' created."
+        return f"Node '{name_clean}' already exists."
+
+    def list_nodes(self) -> List[str]:
+        """List all available memory nodes."""
+        import json
+        if not self.nodes_file.exists():
+             self._ensure_nodes_init()
+        return json.loads(self.nodes_file.read_text())
+
+    def delete_node(self, name: str) -> str:
+        """
+        Delete a memory node and all its data.
+        Cannot delete 'general' node.
+        """
+        import json
+        name = name.lower().strip()
+        if name == "general":
+            return "Error: Cannot delete 'general' node."
+        
+        if not self.nodes_file.exists():
+             self._ensure_nodes_init()
+        
+        nodes = json.loads(self.nodes_file.read_text())
+        if name not in nodes:
+            return f"Error: Node '{name}' does not exist."
+            
+        # 1. Remove from registry
+        nodes.remove(name)
+        self.nodes_file.write_text(json.dumps(nodes))
+        
+        # 2. Delete all memories belonging to this node
+        # Using _get_all_from_json + _delete_from_json logic
+        all_memories = self._get_all_from_json(limit=10000)
+        to_delete = [
+            m.id for m in all_memories 
+            if m.metadata.get("node") == name
+        ]
+        
+        count = 0
+        for mid in to_delete:
+            if self.delete(mid):
+                count += 1
+                
+        return f"Node '{name}' deleted. Removed {count} associated memories."
     def _ensure_initialized(self):
         """Lazy initialization of ChromaDB."""
         if self._initialized:
@@ -38,6 +103,17 @@ class MemoryClient:
         
         try:
             import chromadb
+            from chromadb.utils import embedding_functions
+            import os
+            
+            # Use OpenAI embeddings (no download required, fast API)
+            api_key = os.getenv("OPENAI_API_KEY")
+            ef = None
+            if api_key:
+                ef = embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=api_key,
+                    model_name="text-embedding-3-small"
+                )
             
             # Use new PersistentClient API (ChromaDB 0.4+)
             self._chroma_client = chromadb.PersistentClient(
@@ -47,6 +123,7 @@ class MemoryClient:
             self._collection = self._chroma_client.get_or_create_collection(
                 name="arka_memory",
                 metadata={"hnsw:space": "cosine"},
+                embedding_function=ef
             )
             
             self._initialized = True
@@ -63,41 +140,60 @@ class MemoryClient:
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
         memory_id: Optional[str] = None,
+        node: str = "general"
     ) -> str:
         """
-        Add a memory entry.
-        
-        Args:
-            content: The content to remember
-            metadata: Optional metadata
-            memory_id: Optional custom ID
-            
-        Returns:
-            The ID of the stored memory
+        Add a memory.
+        If node != 'general', it adds to BOTH the target node AND 'general' node.
         """
-        self._ensure_initialized()
+        node = node.lower().strip()
         
+        # 1. Add to Target Node
+        meta_primary = (metadata or {}).copy()
+        meta_primary["node"] = node
+        
+        # Determine strict ID for primary (or auto-gen)
+        # Note: We return the ID of the primary entry
+        primary_id = self._add_single_entry(content, meta_primary, memory_id)
+        
+        # 2. If target is NOT general, Dual Write to General with Link Reference
+        if node != "general":
+            meta_general = (metadata or {}).copy()
+            meta_general["node"] = "general"
+            # Add Linked Reference Pointer
+            meta_general["ref_node"] = node
+            meta_general["ref_id"] = primary_id
+            meta_general["is_ref"] = True
+            
+            # Must use different ID for the copy
+            self._add_single_entry(content, meta_general, memory_id=None)
+            
+        return primary_id
+
+    def _add_single_entry(self, content, metadata, memory_id):
+        """Internal helper to add a single entry."""
+        self._ensure_initialized()
         import uuid
         memory_id = memory_id or str(uuid.uuid4())
         
-        # Try ChromaDB if it has existing data (embeddings already computed)
-        if self._collection:
-            try:
-                count = self._collection.count()
-                if count > 0:
-                    # Collection has data, can add to it
-                    self._collection.add(
-                        ids=[memory_id],
-                        documents=[content],
-                        metadatas=[metadata or {}],
-                    )
-                    return memory_id
-            except Exception:
-                pass  # Fall through to JSON fallback
-        
-        # Fallback: save to file (faster, no embedding needed)
+        # Ensure timestamp exists
+        if "timestamp" not in metadata:
+            from datetime import datetime
+            metadata["timestamp"] = datetime.now().isoformat()
+            
+        # Always save to file backup
         self._save_to_file(memory_id, content, metadata)
         
+        # Try ChromaDB
+        if self._collection:
+            try:
+                self._collection.add(
+                    ids=[memory_id],
+                    documents=[content],
+                    metadatas=[metadata],
+                )
+            except Exception:
+                pass 
         return memory_id
     
     def search(
@@ -146,7 +242,59 @@ class MemoryClient:
         
         # Fallback: JSON file-based text search
         return self._search_json_fallback(query, limit, filter_metadata)
-    
+    def search_time_aware(self, query: str, window_size: int = 15, max_windows: int = 5, node: str = "general") -> List[MemoryEntry]:
+        """
+        Sliding Window Search (The "Pyramid" Strategy):
+        1. Look at the most recent 'window_size' interactions.
+        2. Perform a "deep search" (keyword/relevance check) within that window.
+        3. If matches found, RETURN immediately (Context Found).
+        4. If not, slide the window back to the past and repeat.
+        
+        This prioritizes Recency > Relevance.
+        """
+        # 1. Get all chronological data (Source of Truth)
+        all_memories = self._get_all_from_json(limit=1000)
+        
+        # Filter by Node
+        node = node.lower().strip()
+        # Default fallback for old data: assume 'general' if node not set
+        all_memories = [
+            m for m in all_memories 
+            if m.metadata.get("node", "general") == node
+        ]
+        
+        all_memories.sort(key=lambda x: x.metadata.get("timestamp", ""), reverse=True)
+        
+        query_terms = query.lower().split()
+        matches = []
+        
+        # 2. Slide the window
+        for i in range(0, min(len(all_memories), window_size * max_windows), window_size):
+            window = all_memories[i : i + window_size]
+            window_matches = []
+            
+            # 3. Top-Down Search within Window
+            for mem in window:
+                content_lower = mem.content.lower()
+                # Simple score: count of query terms present
+                score = sum(1 for term in query_terms if term in content_lower)
+                
+                # If significant match (e.g. 30% of terms or single distinct term)
+                if score > 0:
+                     # Calculate simple density score
+                     density = score / len(query_terms)
+                     mem.score = density
+                     # Threshold: at least 1 term matches
+                     window_matches.append(mem)
+            
+            # 4. If this window has good matches, stop and return them!
+            # (We found the answer in recent history, don't look further back)
+            if window_matches:
+                # Sort by relevance within this time window
+                window_matches.sort(key=lambda x: x.score, reverse=True)
+                return window_matches
+                
+        return []
     def _search_json_fallback(
         self,
         query: str,
@@ -238,6 +386,29 @@ class MemoryClient:
         # JSON fallback
         return self._get_all_from_json(limit, filter_metadata)
     
+    def get_recent(self, limit: int = 5, node: str = "general") -> List[MemoryEntry]:
+        """
+        Get most recent memories sorted by timestamp.
+        Useful for loading conversation context.
+        """
+        # Always use JSON file for chronological history (it preserves order/completeness)
+        candidates = self._get_all_from_json(limit=limit * 10)
+        
+        # Filter by Node
+        node = node.lower().strip()
+        candidates = [
+            c for c in candidates 
+            if c.metadata.get("node", "general") == node
+        ]
+        
+        # Sort by timestamp in metadata (descending)
+        candidates.sort(
+            key=lambda x: x.metadata.get("timestamp", ""), 
+            reverse=True
+        )
+        
+        return candidates[:limit]
+    
     def _get_all_from_json(
         self,
         limit: Optional[int] = None,
@@ -287,15 +458,18 @@ class MemoryClient:
         """Delete a memory entry."""
         self._ensure_initialized()
         
+        chroma_success = False
         if self._collection:
             try:
                 self._collection.delete(ids=[memory_id])
-                return True
+                chroma_success = True
             except Exception:
-                pass  # Fall through to JSON fallback
+                pass 
         
-        # JSON fallback
-        return self._delete_from_json(memory_id)
+        # Always update JSON Source of Truth
+        json_success = self._delete_from_json(memory_id)
+        
+        return chroma_success or json_success
     
     def _delete_from_json(self, memory_id: str) -> bool:
         """Delete from JSON fallback storage."""

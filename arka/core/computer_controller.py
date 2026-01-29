@@ -68,6 +68,14 @@ class ComputerController:
         
         pyautogui.click(x, y, clicks=clicks, interval=interval)
         
+    def mouse_move(self, x: int, y: int, duration: float = 0.5):
+        """Move mouse to coordinates."""
+        # Sanity check coordinates
+        x = max(0, min(x, self.screen_width - 1))
+        y = max(0, min(y, self.screen_height - 1))
+        
+        pyautogui.moveTo(x, y, duration=duration)
+        
     def type_text(self, text: str, interval: float = 0.05):
         """Type text with keyboard."""
         pyautogui.write(text, interval=interval)
@@ -136,6 +144,14 @@ class ComputerController:
         except subprocess.CalledProcessError as e:
             return f"Error: {e.output.decode('utf-8')}"
 
+
+    def send_notification(self, title: str, message: str):
+        """Send a macOS system notification."""
+        script = f'display notification "{message}" with title "{title}"'
+        try:
+            subprocess.run(['osascript', '-e', script])
+        except Exception as e:
+            print(f"Notification failed: {e}")
 
 # Global instance
 _controller = None

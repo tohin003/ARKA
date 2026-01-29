@@ -13,12 +13,15 @@ from typing import Dict, List, Optional
 @dataclass
 class ModelConfig:
     """Model configuration for each agent (OpenAI only)."""
-    default: str = "gpt-4o"
-    planner: str = "gpt-4o"
+    default: str = "gpt-5.2"          # Default model for general tasks
+    planner: str = "o1"               # Deep reasoning for complex planning
     coder: str = "gpt-5.2-codex"      # Best for coding
-    tester: str = "gpt-4o-mini"
+    tester: str = "gpt-5.2"           # Better reasoning for tests
     debugger: str = "gpt-5.2-codex"   # Strong for debugging
-    memory_manager: str = "gpt-4o-mini"
+    memory_manager: str = "gpt-5.2"   # Better context understanding
+    # Form Filling Pipeline
+    gui_vision: str = "gpt-5.2"       # Vision + thinking for form extraction/filling
+    gui_reasoner: str = "o1"          # Deep reasoning for confusion/review
 
 
 @dataclass
@@ -46,7 +49,7 @@ class OpenAIConfig:
     """OpenAI API configuration."""
     api_key: str = ""
     available_models: List[str] = field(default_factory=lambda: [
-        "gpt-4o", "gpt-4o-mini", "gpt-5.2-codex", "o1-preview", "o1-mini"
+        "gpt-4o", "gpt-4o-mini", "gpt-5.2-codex", "o1", "o1-preview", "o1-mini"
     ])
 
 

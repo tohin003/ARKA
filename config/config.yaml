@@ -4,14 +4,18 @@
 # Model Registry (OpenAI Only)
 models:
   # Default model for Main Agent / Orchestrator
-  default: gpt-5.2-pro
+  default: gpt-5.2             # Better reasoning for all tasks
   
   # Sub-agent model assignments (all OpenAI)
-  planner: gpt-5.2
+  planner: o1                  # Deep reasoning for complex planning
   coder: gpt-5.2-codex         # Best for coding tasks
-  tester: gpt-5-mini           # Cheaper for validation
+  tester: gpt-5.2              # Better reasoning for tests
   debugger: gpt-5.2-codex      # Strong coding model for debugging
-  memory_manager: gpt-4o-mini  # Background tasks
+  memory_manager: gpt-5.2      # Better context understanding
+  
+  # Form Filling Pipeline
+  gui_vision: gpt-5.2          # Vision + thinking for form extraction
+  gui_reasoner: o1             # Deep reasoning for confusion/review
 
 # OpenAI Configuration
 openai:
@@ -75,3 +79,15 @@ logging:
   level: INFO
   file: ./logs/arka.log
   structured: true            # JSON logging for audit trail
+
+# GUI Agent Configuration
+gui:
+  checkpoint_interval: 5      # Reflect every 5 steps
+  max_checkpoints: 10         # Max check points per task
+  confidence_threshold: 0.8   # Skip o1 if confidence > threshold
+  reflection_timeout: 60      # Seconds for o1 reflection
+
+# Learning Configuration
+learning:
+  store_checkpoints: true     # Store o1 feedback
+  store_user_feedback: true   # Store /good /bad feedback

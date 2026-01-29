@@ -30,6 +30,7 @@ MODEL_COSTS = {
     "gpt-4o": {"input": 0.0025, "output": 0.01},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-5.2-codex": {"input": 0.003, "output": 0.012},  # Optimized for coding
+    "o1": {"input": 0.015, "output": 0.06},          # Full reasoning model
     "o1-preview": {"input": 0.015, "output": 0.06},
     "o1-mini": {"input": 0.003, "output": 0.012},
 }

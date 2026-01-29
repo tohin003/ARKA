@@ -35,7 +35,7 @@ from arka.core.budget_manager import BudgetManager
 from arka.core.orchestrator import Orchestrator
 from arka.memory.memory_client import MemoryClient
 from arka.setup_wizard import ensure_setup, is_setup_complete
-from arka.tools.tool_executor import get_tool_executor, TOOL_DEFINITIONS
+from arka.tools.tool_executor import get_tool_executor
 
 
 # Lazy import to avoid breaking CLI if deps missing
@@ -126,13 +126,21 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
         
         self.running = True
         
+        # Track context for feedback
+        self.last_task = ""
+        
         # Load recent memory context
         self._load_memory_context()
     
     def _load_memory_context(self):
         """Load recent context from memory."""
         try:
-            recent = self.memory.search("recent conversation", limit=3)
+            # Use chronological retrieval (get_recent) instead of semantic search
+            # This ensures we get the actual last few interactions
+            recent = self.memory.get_recent(limit=5)
+            # Re-order to chronological (oldest -> newest) for the prompt
+            recent.reverse()
+            
             if recent:
                 context = "\n".join([r.get("content", "") for r in recent])
                 if context.strip():
@@ -334,6 +342,36 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
             return True
         
         elif cmd == "feedback":
+            # Check for step-level feedback (e.g., "3: click correct button")
+            if ":" in args and any(part.strip().split(':')[0].strip().isdigit() for part in args.split(';')):
+                try:
+                    from arka.training.rl_trainer import get_trainer
+                    trainer = get_trainer()
+                    
+                    # Try to get gui agent from orchestrator
+                    gui_agent = getattr(self.orchestrator, 'agents', {}).get('gui')
+                    
+                    count = 0
+                    for part in args.split(';'):
+                        if ':' in part:
+                            step_str, correction = part.split(':', 1)
+                            if step_str.strip().isdigit():
+                                step_num = int(step_str.strip())
+                                # Find step data if agent available
+                                step_data = {"action": "unknown", "target": "unknown"}
+                                if gui_agent and hasattr(gui_agent, 'step_history'):
+                                    found = next((s for s in gui_agent.step_history if s['step'] == step_num), None)
+                                    if found: step_data = found
+                                
+                                trainer.save_step_correction(step_data, correction.strip())
+                                count += 1
+                                
+                    console.print(f"[green]✓ Learned {count} step corrections.[/green]")
+                except Exception as e:
+                    console.print(f"[red]Error saving step feedback: {e}[/red]")
+                return True
+
+            # Legacy / Visual Learner feedback
             # /feedback skill_name yes/no [notes]
             parts = args.split(maxsplit=2)
             if len(parts) < 2:
@@ -378,15 +416,16 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
         elif cmd in ("good", "like", "upvote"):
             from arka.training.rl_trainer import get_trainer
             trainer = get_trainer()
-            trainer.update_last_interaction("good", 0.5)
-            console.print("[green]Thanks for the feedback! I've reinforced that behavior.[/green]")
+            # Use new method with explicit reward
+            trainer.save_user_feedback(1.0, self.last_task or "unknown_task")
+            console.print("[green]Thanks! +1.0 Reward stored for RL reinforcement.[/green]")
             return True
             
         elif cmd in ("bad", "dislike", "downvote"):
             from arka.training.rl_trainer import get_trainer
             trainer = get_trainer()
-            trainer.update_last_interaction("bad", -0.5)
-            console.print("[red]Sorry about that. I've noted to avoid that in the future.[/red]")
+            trainer.save_user_feedback(-1.0, self.last_task or "unknown_task")
+            console.print("[red]Understood. -1.0 Reward stored. Detailed feedback: use /feedback[/red]")
             return True
         
         else:
@@ -397,6 +436,8 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
     
     def process_message(self, message: str):
         """Process a user message and get AI response via Orchestrator (Swarm)."""
+        self.last_task = message
+        
         # Check system resources (Active Monitoring)
         if not self.resource_monitor.should_proceed():
             res = self.resource_monitor.get_snapshot()
@@ -417,8 +458,57 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
         # Start processing
         model = self.router.current_model
         
+        # === Setup Hotkey Listener for Pause (Cmd+Shift+P) ===
+        listener = None
+        try:
+            from pynput import keyboard
+            
+            # Reset stop flag for fresh run
+            # access .gui directly as Orchestrator has self.gui
+            gui_agent = getattr(self.orchestrator, 'gui', None)
+            if gui_agent:
+                gui_agent.stop_flag = False
+            
+            # Manual tracking of keys to avoid GlobalHotKeys crash on macOS/Py3.13
+            current_keys = set()
+
+            def on_press(key):
+                try:
+                    current_keys.add(key)
+                    # Check for Cmd+Shift+P
+                    # cmd = Key.cmd or Key.cmd_r, shift = Key.shift, 'p'
+                    is_cmd = keyboard.Key.cmd in current_keys or keyboard.Key.cmd_r in current_keys
+                    is_shift = keyboard.Key.shift in current_keys or keyboard.Key.shift_r in current_keys
+                    
+                    if is_cmd and is_shift and hasattr(key, 'char') and key.char == 'p':
+                        on_pause()
+                except AttributeError:
+                    pass
+
+            def on_release(key):
+                try:
+                    if key in current_keys:
+                        current_keys.remove(key)
+                except KeyError:
+                    pass
+
+            def on_pause():
+                # Signal GUI agent to stop
+                # Debounce: check if we just printed
+                print("\n[INFO] Pause requested (Cmd+Shift+P)...")
+                g_agent = getattr(self.orchestrator, 'gui', None)
+                if g_agent:
+                    g_agent.stop_flag = True
+                    
+            listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+            listener.start()
+        except Exception as e:
+            # Pynput need permissions or installation
+            console.print(f"[yellow]⚠️  Warning: Hotkey listener failed (Cmd+Shift+P will not work). Reason: {e}[/yellow]")
+            pass
+
         # Show thinking indicator
-        with console.status(f"[bold cyan]⚡ [{model}] Orchestrating Agents...[/bold cyan]"):
+        with console.status(f"[bold cyan]⚡ [{model}] Orchestrating Agents (Cmd+Shift+P to Pause)...[/bold cyan]"):
             try:
                 # Delegate to Orchestrator (handles Swarm, Tools, Memory)
                 response = self.orchestrator.chat(message)
@@ -430,10 +520,11 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
                     border_style="green",
                 ))
                 
-                # Note: Orchestrator handles its own usage tracking now
-                
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
+            finally:
+                if listener:
+                    listener.stop()
     
     def run(self):
         """Main CLI loop."""
@@ -456,6 +547,31 @@ ALWAYS use tools when the user asks to interact with the system. Be proactive an
                     self.handle_slash_command(user_input)
                 else:
                     self.process_message(user_input)
+                    
+                    # === External RL Feedback Loop ===
+                    try:
+                        console.print("\n[bold yellow]rl_feedback>[/bold yellow] Rate agent performance (1-5) [Enter=Skip]: ", end="")
+                        rating = input()
+                        if rating.strip() and rating.strip().isdigit():
+                            score = int(rating.strip())
+                            # Map 1-5 to -1.0 to 1.0
+                            # 1=-1.0, 2=-0.5, 3=0.0, 4=0.5, 5=1.0
+                            reward_map = {1: -1.0, 2: -0.5, 3: 0.0, 4: 0.5, 5: 1.0}
+                            reward = reward_map.get(score, 0.0)
+                            
+                            feedback_text = ""
+                            if score < 3:
+                                feedback_text = Prompt.ask("[bold yellow]rl_feedback>[/bold yellow] What went wrong?")
+                            
+                            # Update the last interaction's semantic weight
+                            if hasattr(self.orchestrator, 'trainer') and self.orchestrator.trainer:
+                                self.orchestrator.trainer.update_last_interaction(
+                                    feedback=feedback_text,
+                                    score_adjustment=reward
+                                )
+                                console.print("[dim]Feedback integrated into memory.[/dim]")
+                    except Exception:
+                        pass
                     
             except KeyboardInterrupt:
                 console.print("\n[dim]Goodbye![/dim]")

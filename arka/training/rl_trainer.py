@@ -147,8 +147,9 @@ class SemanticPatternTrainer:
             tokens_used=tokens_used,
         )
         
-        # Only store high-value interactions or explicitly feedbacked ones
-        if reward < 0.8 and not user_feedback:
+        # Store ALL successful interactions (threshold 0.0) to ensure full history
+        # (Previously 0.8 filtered out too much)
+        if reward < 0.0 and not user_feedback:
             return
             
         timestamp = datetime.now().isoformat()
@@ -225,6 +226,46 @@ class SemanticPatternTrainer:
                 })
         
         return good_examples
+        
+    def get_mistakes(self, task: str, limit: int = 3) -> List[Dict]:
+        """Get relevant failure examples (mistakes) to avoid."""
+        mistakes = []
+        
+        # 1. Search for generic RL pattern failures
+        results = self.memory.search(
+            task,
+            limit=limit,
+            filter_metadata={"type": "rl_pattern"}
+        )
+        for r in results:
+            reward = float(r.metadata.get("reward", 0.0))
+            feedback = r.metadata.get("feedback", "").lower()
+            if reward <= -0.5 or any(w in feedback for w in ["bad", "wrong", "fail", "no", "stop"]):
+                mistakes.append({
+                    "task": r.metadata.get("task", ""),
+                    "action": r.metadata.get("response", ""),
+                    "feedback": r.metadata.get("feedback", ""),
+                    "reward": reward
+                })
+
+        # 2. Search for explicit step corrections
+        try:
+            correction_results = self.memory.search(
+                task,
+                limit=limit,
+                filter_metadata={"node": "gui_corrections"}
+            )
+            for r in correction_results:
+                mistakes.append({
+                    "task": "STEP CORRECTION",
+                    "action": f"{r.metadata.get('wrong_action')} -> {r.metadata.get('wrong_target')}",
+                    "feedback": f"CORRECTION: {r.metadata.get('correction')}",
+                    "reward": -1.0
+                })
+        except Exception:
+            pass
+        
+        return mistakes
     
     def get_training_stats(self) -> Dict[str, Any]:
         """Get training statistics."""
@@ -233,6 +274,51 @@ class SemanticPatternTrainer:
             "backend": "semantic_memory",
             "type": "few_shot_rag"
         }
+
+    def save_checkpoint_feedback(self, task: str, steps: list, o1_response: dict):
+        """Store o1's checkpoint feedback for learning."""
+        feedback = o1_response.get('feedback', '')
+        if not feedback:
+            return
+            
+        self.memory.add(
+            content=f"CHECKPOINT FEEDBACK: {feedback}\nPlan: {o1_response.get('plan')}",
+            metadata={
+                "node": "gui_learning", 
+                "type": "checkpoint",
+                "on_track": o1_response.get("on_track"),
+                "task": task,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+
+    def save_user_feedback(self, reward: float, task: str):
+        """Store user's final feedback."""
+        feedback_type = "positive" if reward > 0 else "negative"
+        self.memory.add(
+            content=f"USER FEEDBACK: {feedback_type} ({reward})",
+            metadata={
+                "node": "gui_learning",
+                "type": "user",
+                "reward": reward,
+                "task": task,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+
+    def save_step_correction(self, step_data: Dict, correction: str):
+        """Store step-level correction."""
+        self.memory.add(
+            content=f"CORRECTION: When action was {step_data.get('action')}->{step_data.get('target')}, correct action is: {correction}",
+            metadata={
+                "node": "gui_corrections",
+                "wrong_action": step_data.get("action"),
+                "wrong_target": step_data.get("target"),
+                "context": step_data.get("dom_context", "")[:500],
+                "correction": correction,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
     
     def export_for_training(self, output_path: Path) -> int:
         """

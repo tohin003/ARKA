@@ -26,15 +26,14 @@ class BrowserTool(BaseTool):
     """
     
     NAME = "browser"
-    DESCRIPTION = "Browse the web, interact with pages, and extract content"
+    DESCRIPTION = "Browse the web, interact with pages via DOM IDs, and extract content"
     CATEGORY = ToolCategory.WEB
     REQUIRES_CONFIRMATION = False
     
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = False):
         super().__init__()
-        self.headless = headless
-        self._browser = None
-        self._playwright = None
+        from arka.core.browser_manager import get_browser_manager
+        self._manager = get_browser_manager()
     
     def get_parameters(self) -> Dict[str, Any]:
         return {
@@ -42,7 +41,7 @@ class BrowserTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["navigate", "click", "type", "screenshot", "get_text", "search"],
+                    "enum": ["navigate", "click", "type", "screenshot", "get_text", "search", "get_dom", "get_interactive", "connect"],
                     "description": "Browser action to perform",
                 },
                 "url": {
@@ -51,37 +50,15 @@ class BrowserTool(BaseTool):
                 },
                 "selector": {
                     "type": "string",
-                    "description": "CSS selector for element interactions",
+                    "description": "CSS selector or Arka ID (integer)",
                 },
                 "text": {
                     "type": "string",
-                    "description": "Text to type or search query",
+                    "description": "Text to type, search query, or Port number for connect",
                 },
             },
             "required": ["action"],
         }
-    
-    async def _ensure_browser(self):
-        """Initialize browser if needed."""
-        if self._browser is None:
-            try:
-                from playwright.async_api import async_playwright
-                
-                self._playwright = await async_playwright().start()
-                self._browser = await self._playwright.chromium.launch(
-                    headless=self.headless
-                )
-            except ImportError:
-                raise RuntimeError("Playwright not installed. Run: pip install playwright && playwright install")
-    
-    async def _close_browser(self):
-        """Close browser."""
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
     
     def execute(
         self,
@@ -91,88 +68,54 @@ class BrowserTool(BaseTool):
         text: Optional[str] = None,
     ) -> ToolResult:
         """
-        Execute a browser action.
-        
-        Args:
-            action: navigate, click, type, screenshot, get_text, search
-            url: URL for navigation
-            selector: CSS selector for interactions
-            text: Text to type or search query
-            
-        Returns:
-            ToolResult with page content or action result
+        Execute a browser action using persistent BrowserManager.
         """
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(
-            self._execute_async(action, url, selector, text)
-        )
-    
-    async def _execute_async(
-        self,
-        action: str,
-        url: Optional[str] = None,
-        selector: Optional[str] = None,
-        text: Optional[str] = None,
-    ) -> ToolResult:
-        """Async browser execution."""
-        
-        if action == "search":
-            return await self._search(text or "")
-        
-        if action == "navigate" and url:
-            # Try simple HTTP first for just getting content
-            return await self._simple_fetch(url)
-        
-        # Full browser for interactive actions
-        try:
-            await self._ensure_browser()
-            
-            page = await self._browser.new_page()
-            
-            try:
-                if action == "navigate" and url:
-                    await page.goto(url, wait_until="networkidle")
-                    title = await page.title()
-                    content = await page.content()
-                    return ToolResult(
-                        success=True,
-                        output=f"Navigated to: {title}\n\n{content[:5000]}",
-                        metadata={"url": url, "title": title},
-                    )
-                
-                elif action == "click" and selector:
-                    await page.click(selector)
-                    return ToolResult(True, f"Clicked: {selector}")
-                
-                elif action == "type" and selector and text:
-                    await page.fill(selector, text)
-                    return ToolResult(True, f"Typed into: {selector}")
-                
-                elif action == "screenshot":
-                    screenshot = await page.screenshot()
-                    return ToolResult(
-                        True,
-                        "Screenshot captured",
-                        metadata={"screenshot": screenshot},
-                    )
-                
-                elif action == "get_text":
-                    text_content = await page.inner_text("body")
-                    return ToolResult(True, text_content[:5000])
-                
+            if action == "connect":
+                port = int(text) if text and text.isdigit() else 9222
+                success = self._manager.connect_external(port)
+                if success:
+                    return ToolResult(True, f"Successfully connected to external Chrome on port {port}. DOM features now active on your browser.")
                 else:
-                    return ToolResult(False, "", f"Invalid action or missing params: {action}")
-                    
-            finally:
-                await page.close()
+                    return ToolResult(False, "", "Failed to connect. Ensure Chrome is running with '--remote-debugging-port=9222'")
+
+            if action == "search":
+                return self._search(text or "")
+            
+            # Browser Manager Actions
+            if action == "navigate" and url:
+                self._manager.navigate(url)
+                title = self._manager.get_title()
+                return ToolResult(True, f"Navigated to: {title}", metadata={"url": url})
+            
+            elif action in ["get_dom", "get_interactive"]:
+                dom_tree = self._manager.get_dom_snapshot()
+                return ToolResult(True, f"Interactive Elements:\n{dom_tree}")
                 
+            elif action == "click" and selector:
+                self._manager.click(selector)
+                return ToolResult(True, f"Clicked: {selector}")
+            
+            elif action == "type" and selector and text:
+                self._manager.type_text(selector, text)
+                return ToolResult(True, f"Typed into: {selector}")
+            
+            elif action == "screenshot":
+                b64 = self._manager.screenshot()
+                return ToolResult(True, "Screenshot captured", metadata={"screenshot": b64})
+            
+            elif action == "get_text":
+                txt = self._manager.get_visible_text()
+                return ToolResult(True, txt[:5000])
+                
+            return ToolResult(False, "", f"Invalid or missing params for action: {action}")
+            
         except Exception as e:
             return ToolResult(False, "", str(e))
+
+    # Async stubs removed as we use Sync Playwright via Manager
+    async def _execute_async(self, *args, **kwargs):
+        raise NotImplementedError("Use sync execute() with BrowserManager")
     
     async def _simple_fetch(self, url: str) -> ToolResult:
         """Simple HTTP fetch without full browser."""
