@@ -386,7 +386,11 @@ Remember:
         steps_since_checkpoint = 0
         
         # Initial checking for similar tasks to set confidence
-        confidence, patterns = self._check_task_experience(task)
+        confidence, best_practices, mistakes = self._check_task_experience(task)
+        
+        # Combine patterns for OODA loop
+        patterns = f"{best_practices}\n\n{mistakes}"
+        
         if confidence > self.CONFIDENCE_THRESHOLD:
             print(f"🧠 High confidence ({confidence:.2f}) from past tasks. Using self-evaluation.")
         
@@ -558,7 +562,12 @@ Remember:
             self.step_history.pop(0)
 
     def _check_task_experience(self, task: str) -> tuple:
-        """Check if we have successfully done this task before."""
+        """Check for past successes AND mistakes."""
+        best_practices = ""
+        mistakes_str = ""
+        confidence = 0.0
+
+        # 1. Get Best Practices (Successes)
         try:
             results = self.memory.search(
                 task, 
@@ -566,11 +575,25 @@ Remember:
                 filter_metadata={"node": "gui_learning", "success": True}
             )
             if results:
-                score = getattr(results[0], 'score', 0.0)
-                return score, results[0].content
+                 # Calculate simple confidence based on reward
+                 score = float(results[0].metadata.get('reward', 0.0))
+                 confidence = max(0.0, score)
+                 best_practices = f"✅ MATCHING SUCCESS:\n{results[0].content}"
         except Exception:
             pass
-        return 0.0, None
+
+        # 2. Get learned mistakes (Failures)
+        try:
+            if self.trainer:
+                mistakes = self.trainer.get_mistakes(task, limit=3)
+                if mistakes:
+                    mistakes_str = "🛑 PREVIOUS MISTAKES (AVOID THESE):\n"
+                    for m in mistakes:
+                        mistakes_str += f"- Action: {m['action']}\n  Feedback: {m['feedback']}\n"
+        except Exception:
+            pass
+            
+        return confidence, best_practices, mistakes_str
 
     def _checkpoint_reflect(self, task: str, is_web: bool, confidence: float, patterns: str, recent_actions: List[str] = []) -> Dict:
         """Reflect on progress using either self-evaluation (learned) or o1 (new)."""
@@ -621,9 +644,10 @@ Remember:
         prompt_instruction = (
             f"TASK: {task}\nSTEPS TAKEN:\n{recent_steps}{rl_context}\n\n"
             "Assess progress strictly. Return JSON { 'on_track': bool, 'feedback': str, 'success_detected': bool }.\n"
-            "CRITICAL:\n"
-            "- If the task goal appears achieved (e.g. video is playing, page is loaded, form is submitted), "
-            "set 'success_detected': true and 'on_track': true.\n"
+            "CRITICAL SUCCESS CRITERIA:\n"
+            "- Verify EXACT constraints (e.g., if task says 'New Tab', verify a new tab is focused).\n"
+            "- If task says 'Play Song', verify audio is playing or video progress bar is moving.\n"
+            "- If the task goal appears completely achieved set 'success_detected': true and 'on_track': true.\n"
             "- Do NOT propose new plans if the goal is met. Return success."
         )
 
