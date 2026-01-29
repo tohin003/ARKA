@@ -797,6 +797,11 @@ AVAILABLE ACTIONS:
 11. fail - Cannot complete
 
 RULES:
+- **PLAN ADHERENCE PROTOCOL** (CRITICAL):
+  - The "CURRENT PLAN" above contains strict, vision-optimized instructions.
+  - If the step says "Click the Search Bar", look for that EXACT visual element (or DOM ID).
+  - Do NOT skip steps. Do NOT guess. Execute the detailed instruction precisely.
+  - If the plan says "Type 'X' and Press Enter", you must do strictly that.
 - **WEB TASKS**: ALWAYS check the DOM List first! If you see the element there, use `dom_click` with its `[ID]`. It is 100% accurate.
 - If DOM is empty/missing, fall back to `click` (Visual) or `hotkey`.
 - `dom_type` requires an ID and text. Example: {{"action": "dom_type", "target": "5", "text": "800000"}}
