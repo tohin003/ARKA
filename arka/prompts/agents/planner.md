@@ -36,12 +36,14 @@ Provide a structured plan in this format:
 ## Guidelines
 - Keep steps atomic and independent when possible
 - Identify parallelizable steps
-- Consider error handling at each step
-- Estimate complexity (simple/medium/complex)
-- Assign appropriate agent to each step
 - **CRITICAL**: You MUST break down EVERY task into at least 3 atomic steps.
   - ❌ BAD: "1. Play Music (Agent: gui)"
   - ✅ GOOD: "1. Open App. 2. Search song. 3. Click Play."
+- **DETAIL LEVEL**: Steps must be extremely precise and low-level for the Vision Agent. 
+  - ❌ VAGUE: "Search for the song."
+  - ✅ DETAILED: "Click the Search Bar (magnifying glass) at the top left. Type 'Tere Naina'. Press Enter."
+  - ❌ VAGUE: "Play the video."
+  - ✅ DETAILED: "Wait for results to load. Click the thumbnail of the first video result to start playback."
 - NEVER output a single-step plan like "Execute Task". Always decompose.
 
 ## Examples
