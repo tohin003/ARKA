@@ -793,10 +793,14 @@ AVAILABLE ACTIONS:
    {{"action": "press_key", "target": "enter", "reasoning": "..."}}
 
 9. wait - Wait for page load
-10. done - Task complete
+10. done - Task complete (USE IMMEDIATELY IF GOAL IS MET!)
 11. fail - Cannot complete
 
 RULES:
+- **IMMEDIATE SUCCESS CHECK**: Before any action, check: Is the goal ALREADY done?
+  - If Video is playing -> `done`
+  - If Search results are visible -> `done`
+  - Do NOT "click just to be sure". If it looks done, return `done`.
 - **PLAN ADHERENCE PROTOCOL** (CRITICAL):
   - The "CURRENT PLAN" above contains strict, vision-optimized instructions.
   - If the step says "Click the Search Bar", look for that EXACT visual element (or DOM ID).
