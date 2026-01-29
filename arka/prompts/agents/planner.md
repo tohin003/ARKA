@@ -39,6 +39,10 @@ Provide a structured plan in this format:
 - Consider error handling at each step
 - Estimate complexity (simple/medium/complex)
 - Assign appropriate agent to each step
+- **CRITICAL**: You MUST break down EVERY task into at least 3 atomic steps.
+  - ❌ BAD: "1. Play Music (Agent: gui)"
+  - ✅ GOOD: "1. Open App. 2. Search song. 3. Click Play."
+- NEVER output a single-step plan like "Execute Task". Always decompose.
 
 ## Examples
 
