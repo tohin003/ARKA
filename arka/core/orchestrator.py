@@ -154,6 +154,45 @@ class Orchestrator:
     def _direct_chat(self, message: str) -> str:
         """Chat directly using tools (System Control)."""
         import json
+        from arka.tools.tool_executor import get_tool_executor
+        tool_executor = get_tool_executor()
+        
+        # Retrieve persona and relevant context
+        persona = self.memory.get_persona()
+        
+        # 1. Semantic Search (Sliding Window / "Pyramid")
+        # Prioritize recent context matches over old ones
+        context = self.memory.search_time_aware(message, window_size=20)
+        context_str = "\n".join([c.content for c in context]) if context else ""
+        
+        # 2. Chronological Context (for immediate awareness)
+        # Fetch more items (20) to account for duplicates/chatter and ensure 
+        # significant actions (like tool outputs) remain in context.
+        recent_memories = self.memory.get_recent(limit=20)
+        # Reverse to ensure chronological order (Oldest -> Newest)
+        recent_memories.reverse()
+        recent_str = "\n".join([m.content for m in recent_memories]) if recent_memories else ""
+        
+        system_prompt = self.prompt_loader.get_core_prompt()
+        if persona:
+             system_prompt += f"\n\n## User Persona\n{persona}"
+        
+        if recent_str:
+            system_prompt += f"\n\n## Recent Interactions (Chronological)\n{recent_str}"
+        
+        # Build initial messages path
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *self.history[-10:],
+        ]
+        
+        # Inject memory context into the user message
+        if context_str:
+             last_msg = messages[-1].copy()
+             last_msg["content"] += f"\n\n[Relevant Memory context]:\n{context_str}"
+             messages[-1] = last_msg
+        
+        # Tool Use Loop (Max 5 turns)
         params = {
             "tools": tool_executor.get_tool_definitions(),
             "tool_choice": "auto",
